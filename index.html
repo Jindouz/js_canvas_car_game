@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Car Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .button {
+            position: absolute;
+            top: 120px;
+            left: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+
+        #infoMessage {
+            position: absolute;
+            top: 160px;
+            left: 20px;
+            color: #070707;
+            font-size: 14px;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 999;
+            /* Ensure the overlay appears on top */
+        }
+    </style>
+</head>
+
+<body>
+
+
+
+
+    <canvas id="gameCanvas"></canvas>
+    <button id="resetButton" class="button">Reset</button>
+    <br><br>
+    <div id="infoMessage">
+        <h3>Use the left and right arrow keys (or A and D) to dodge obstacles and gain points</h3>
+        <h3>Press SPACE to pause the game</h3>
+    
+    </div>
+    <div id="overlay"
+        style="position:absolute; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); display:none;">
+        <div id="message"
+            style="position:absolute; top:50%; left:50%; transform: translate(-50%, -50%); color:white; font-size:30px;">
+        </div>
+    </div>
+
+
+
+
+    <script>
+
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const resetButton = document.getElementById('resetButton');
+        const overlay = document.getElementById('overlay');
+        const message = document.getElementById('message');
+
+        // Set canvas dimensions
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Road parameters
+        const roadWidth = 300;
+        const roadColor = '#808080';
+        const grassColor = '#00b300';
+        const roadStripWidth = 10;
+        const roadStripColor = '#ffffff';
+        const grassHeight = 100;
+        const segmentHeight = 200; // Height of each road segment
+        const numSegments = Math.ceil(canvas.height / segmentHeight) + 1; // Number of segments to cover the entire canvas
+
+        let roadOffset = 0;
+        const speed = 3;
+
+        // Car parameters
+        const carWidth = 90;
+        const carHeight = 60;
+        const carImage = new Image();
+        carImage.src = 'assets/car1.png'; // Path to your car image
+        let carX = (canvas.width - carWidth) / 2;
+        const carY = grassHeight + (canvas.height - grassHeight) * 0.75;
+        const carSpeed = 15; // Sensitivity
+
+
+        // Obstacle parameters
+        const obstacleWidth = 50;
+        const obstacleHeight = 60;
+        const obstacleImage = new Image();
+        obstacleImage.src = 'assets/obstacle.png';
+        const minObstacleGap = 150;
+        let obstacles = [];
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let collisions = 0;
+
+        // flags for game state
+        let gameOver = false;
+        let gameStarted = false;
+        let gamePaused = false;
+        let gameLoaded = false;
+
+        // Initialize the game
+        function initializeGame() {
+            gameStarted = false;
+            gamePaused = false;
+            gameLoaded = false;
+            gameOver = false;
+            obstacles = [];
+            score = 0;
+            collisions = 0;
+            roadOffset = 0;
+
+            // Show overlay and initial message
+            overlay.style.display = 'block';
+            message.innerText = 'Press SPACE to start';
+        }
+
+        initializeGame();
+
+        // Event listener for keydown
+        document.addEventListener('keydown', function (event) {
+            if (!gameStarted) {
+                startGame();
+            } else if (!gameOver && event.key === ' ') {
+                togglePause();
+            } else if (!gameOver && !gamePaused) {
+                if (event.key === 'ArrowLeft' || event.key === 'a') {
+                    carX -= carSpeed;
+                    if (carX < (canvas.width - roadWidth) / 2) {
+                        carX = (canvas.width - roadWidth) / 2;
+                    }
+                } else if (event.key === 'ArrowRight' || event.key === 'd') {
+                    carX += carSpeed;
+                    if (carX > (canvas.width + roadWidth) / 2 - carWidth) {
+                        carX = (canvas.width + roadWidth) / 2 - carWidth;
+                    }
+                }
+            }
+            if(gameOver){
+                if(event.key === ' '){
+                    resetGame();
+                }
+            }
+        });
+
+        // Event listener for reset button
+        resetButton.addEventListener('click', function () {
+            resetGame();
+        });
+
+        function startGame() {
+            gameStarted = true;
+            gameLoaded = true;
+            hideOverlay();
+        }
+
+        function togglePause() {
+            gamePaused = !gamePaused;
+            if (gamePaused) {
+                // Show overlay and message when the game is paused
+                overlay.style.display = 'block';
+                message.innerText = 'Paused';
+            } else {
+                // Hide overlay and clear the message when the game is resumed
+                overlay.style.display = 'none';
+                message.innerText = '';
+            }
+        }
+
+        function resetGame() {
+            obstacles = [];
+            score = 0;
+            collisions = 0;
+            gameOver = false;
+            carX = (canvas.width - carWidth) / 2;
+        }
+
+        function hideOverlay() {
+            overlay.style.display = 'none';
+            message.innerText = ''; // Clear the message
+        }
+
+
+        // draw function for the road/obstacles/car
+        function drawRoad() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grass
+            ctx.fillStyle = grassColor;
+            ctx.fillRect(0, 0, canvas.width, grassHeight);
+
+            // Draw road segments
+            for (let i = 0; i < numSegments; i++) {
+                const segmentY = i * segmentHeight - roadOffset % segmentHeight;
+                drawRoadSegment(segmentY);
+            }
+
+            // Draw obstacles
+            drawObstacles();
+
+            // Draw car
+            drawCar();
+
+            // Draw score
+            ctx.fillStyle = '#000000';
+            ctx.font = '30px Arial';
+            ctx.fillText('Score: ' + score, 20, 40);
+            ctx.fillText('High Score: ' + highScore, 20, 80);
+
+            // Draw game over message
+            if (gameOver) {
+                ctx.fillStyle = '#FF0000';
+                ctx.fillText(`Game Over!`, canvas.width / 2 - 100, canvas.height / 2);
+                ctx.fillText(`Your score: ${score}`, canvas.width / 2 - 100, canvas.height / 2 + 40);
+                // press space to play again
+                ctx.fillText('Press SPACE to play again', canvas.width / 2 - 150, canvas.height / 2 + 80);
+            } else if (!gameStarted) {
+                ctx.fillStyle = '#000000';
+                ctx.fillText('Press any key to start', canvas.width / 2 - 150, canvas.height / 2);
+            } else {
+                // Hide overlay and clear the message if the game is neither over nor paused
+                overlay.style.display = 'none';
+                message.innerText = ''; // Clear the message
+
+                // Show overlay and message when the game is paused
+                if (gamePaused) {
+                    overlay.style.display = 'block';
+                    message.innerText = 'Paused';
+                }
+            }
+        }
+
+        // Draw road segment
+        function drawRoadSegment(y) {
+            ctx.fillStyle = roadColor;
+            ctx.fillRect((canvas.width - roadWidth) / 2, y, roadWidth, segmentHeight);
+
+            // Draw dashed center line
+            ctx.fillStyle = roadStripColor;
+            const stripWidth = roadWidth / 30; // Adjust the width of the stripes here
+            const stripHeight = segmentHeight / 3; // Adjust the height of the stripes here
+            const gap = stripHeight * 2; // The gap between strips is twice the height of a strip
+
+            // Calculate the number of strips that can fit in the segmentHeight
+            const numStrips = Math.floor(segmentHeight / (stripHeight + gap));
+
+            // Calculate the x position for the center line
+            const centerX = (canvas.width - stripWidth) / 2;
+
+            for (let i = 0; i < numStrips; i++) {
+                // Calculate y position for each stripe
+                let yPos = y + (stripHeight + gap) * i;
+                // Draw each stripe
+                ctx.fillRect(centerX, yPos, stripWidth, stripHeight);
+            }
+        }
+
+        // Draw car
+        function drawCar() {
+            ctx.drawImage(carImage, carX, carY, carWidth, carHeight);
+        }
+
+        // Draw obstacles
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                ctx.drawImage(obstacleImage, obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+        }
+
+        // Update road
+        function updateRoad() {
+            if (!gameOver && !gamePaused) {
+                roadOffset -= speed;
+
+                // Generate new obstacles
+                if (Math.random() < 0.02) {
+                    const lastObstacle = obstacles[obstacles.length - 1];
+                    const newObstacleX = (canvas.width - roadWidth) / 2 + Math.random() * roadWidth;
+                    const newObstacleY = -obstacleHeight;
+                    if (!lastObstacle || newObstacleX - lastObstacle.x > minObstacleGap) {
+                        obstacles.push({ x: newObstacleX, y: newObstacleY, width: obstacleWidth, height: obstacleHeight });
+                    }
+                }
+
+                // Move obstacles
+                obstacles = obstacles.filter(obstacle => {
+                    obstacle.y += speed;
+                    return obstacle.y < canvas.height;
+                });
+
+                // Check collision
+                obstacles.forEach(obstacle => {
+                    if (
+                        carX < obstacle.x + obstacle.width &&
+                        carX + carWidth > obstacle.x &&
+                        carY < obstacle.y + obstacle.height &&
+                        carY + carHeight > obstacle.y
+                    ) {
+                        collisions++;
+                        if (collisions >= 3) {
+                            gameOver = true;
+                            updateHighScore();
+                            console.log('Game over!');
+                        }
+                    }
+                });
+
+                // Count score for passing obstacles
+                obstacles.forEach(obstacle => {
+                    if (obstacle.y + obstacle.height > carY + carHeight && obstacle.y + obstacle.height < carY + carHeight + speed) {
+                        score += 100;
+                        if (score > highScore) {
+                            highScore = score;
+                        }
+                    }
+                });
+            }
+        }
+
+        // local storage high score
+        function updateHighScore() {
+            if (score >= highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+                console.log('New high score: ' + highScore);
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            if (gameLoaded && gameStarted && !gamePaused) {
+                drawRoad();
+                updateRoad();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+
+</html>
